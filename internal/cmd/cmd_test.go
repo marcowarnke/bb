@@ -474,3 +474,33 @@ func TestMergeBlockers(t *testing.T) {
 		t.Fatalf("code=%d err=%q", code, errOut)
 	}
 }
+
+func TestBrowse(t *testing.T) {
+	f := newFake(t)
+	repo := f.srv.URL + "/projects/PROJ/repos/repo"
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{nil, repo + "/browse"},
+		{[]string{"42"}, repo + "/pull-requests/42"},
+		{[]string{"src/main.go:42", "-b", "release/1.0"}, repo + "/browse/src/main.go?at=refs%2Fheads%2Frelease%2F1.0#42"},
+		{[]string{"./docs/a b.md:3-7"}, repo + "/browse/docs/a%20b.md#3-7"},
+		{[]string{"abc1234"}, repo + "/commits/abc1234"},
+		{[]string{"--commit=abc1234", "src"}, repo + "/browse/src?at=abc1234"},
+		{[]string{"-s"}, repo + "/settings"},
+	} {
+		args := append([]string{"browse", "-R", "PROJ/repo", "-n"}, tc.args...)
+		out, errOut, code := run(t, "", args...)
+		if code != 0 || strings.TrimSpace(out) != tc.want {
+			t.Errorf("%v: code=%d out=%q err=%q want %q", tc.args, code, out, errOut, tc.want)
+		}
+	}
+	out, _, _ := run(t, "", "browse", "-R", "~Alice/repo", "-n")
+	if strings.TrimSpace(out) != f.srv.URL+"/users/alice/repos/repo/browse" {
+		t.Errorf("personal repo: %q", out)
+	}
+	if _, errOut, code := run(t, "", "browse", "-R", "PROJ/repo", "-n", "x.go:abc"); code == 0 || !strings.Contains(errOut, "invalid line") {
+		t.Errorf("expected line error, got %q", errOut)
+	}
+}

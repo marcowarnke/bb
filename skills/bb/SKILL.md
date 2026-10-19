@@ -34,6 +34,7 @@ Auth is preconfigured. `bb auth status` checks it; exit code 4 anywhere = not au
 | Why can't it merge? | `bb pr merge N --dry-run` · `bb pr view N --json mergeStateStatus,mergeBlockers` |
 | Create / update | `bb pr create -t T -F - -r alice,bob` · `bb pr edit N --add-reviewer x` |
 | Check out | `bb pr checkout N` |
+| Link to code for the user | `bb browse -n src/x.go:10-20 [-b BRANCH \| --commit=SHA]` |
 | File at a commit | `bb api -H 'Accept: text/plain' "projects/{project}/repos/{repo}/raw/<path>?at=<sha>"` |
 | Anything else | `bb api <path> [--paginate] [--jq expr]` |
 
