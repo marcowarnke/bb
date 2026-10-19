@@ -22,7 +22,15 @@ echo "$TOKEN" | bb auth login -h https://host/ctx --with-token   # include conte
 bb auth status | token | logout
 ```
 
-Config: `~/.config/bb/config.json` (0600; `BB_CONFIG_DIR`/`XDG_CONFIG_HOME` respected). Token = DC HTTP access token, repo write scope.
+Token = DC HTTP access token, repo write scope. Storage follows gh:
+
+| Where | When |
+|---|---|
+| OS keyring (macOS Keychain, Windows Credential Manager, Linux Secret Service), service `bb:<host>` | Default |
+| `~/.config/bb/config.json`, plain text, 0600 | `--insecure-storage`, or no keyring available (e.g. headless Linux) — login warns |
+| `BB_TOKEN` | Always wins; nothing stored. Use for CI/agent sandboxes |
+
+Both stored forms survive reboots; `bb auth status` shows which one is in use, `bb auth logout` removes it. Config dir honours `BB_CONFIG_DIR`/`XDG_CONFIG_HOME`.
 
 | Env | Effect |
 |---|---|

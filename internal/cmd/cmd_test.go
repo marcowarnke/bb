@@ -10,6 +10,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/spf13/cobra"
+	"github.com/zalando/go-keyring"
 )
 
 // fakeBB is a tiny in-memory Bitbucket Data Center.
@@ -48,6 +51,7 @@ func page(vals ...any) map[string]any {
 }
 
 func newFake(t *testing.T) *fakeBB {
+	keyring.MockInit() // never touch the real OS keyring from tests
 	f := &fakeBB{t: t, bodies: map[string]map[string]any{}}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.handle))
 	t.Cleanup(f.srv.Close)
@@ -325,5 +329,25 @@ func TestAuthFailureExitCode(t *testing.T) {
 	_, errOut, _ := run(t, "", "pr", "view", "7", "-R", "PROJ/repo")
 	if !strings.Contains(errOut, "HTTP 401") {
 		t.Fatalf("err=%q", errOut)
+	}
+}
+
+// Every command must build its flag set without panicking (e.g. -h clashes).
+func TestAllCommandsHelp(t *testing.T) {
+	n := 0
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		for _, sub := range c.Commands() {
+			path := strings.Fields(sub.CommandPath())[1:]
+			if _, errOut, code := run(t, "", append(path, "--help")...); code != 0 {
+				t.Errorf("%s --help: code=%d err=%q", sub.CommandPath(), code, errOut)
+			}
+			n++
+			walk(sub)
+		}
+	}
+	walk(NewRoot())
+	if n < 20 {
+		t.Fatalf("only %d commands walked", n)
 	}
 }

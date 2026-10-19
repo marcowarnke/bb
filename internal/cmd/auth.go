@@ -25,16 +25,26 @@ repository write permission to create and comment on pull requests.
 
 Alternatively set BB_HOST and BB_TOKEN; they take precedence over stored credentials.`,
 	}
-	cmd.AddCommand(newAuthLoginCmd(), newAuthStatusCmd(), newAuthLogoutCmd(), newAuthTokenCmd())
+	for _, sub := range []*cobra.Command{newAuthLoginCmd(), newAuthStatusCmd(), newAuthLogoutCmd(), newAuthTokenCmd()} {
+		// -h is --hostname here (as in gh); declaring --help ourselves stops
+		// cobra from adding its -h shorthand, which would panic.
+		sub.Flags().Bool("help", false, "Show help for command")
+		cmd.AddCommand(sub)
+	}
 	return cmd
 }
 
 func newAuthLoginCmd() *cobra.Command {
 	var hostname, gitProtocol string
-	var withToken bool
+	var withToken, insecureStorage bool
 	cmd := &cobra.Command{
 		Use:   "login",
 		Short: "Log in to a Bitbucket host",
+		Long: `Log in to a Bitbucket Data Center host with an HTTP access token.
+
+The token is stored in the OS credential store (macOS Keychain, Windows
+Credential Manager, Linux Secret Service). If none is available, or with
+--insecure-storage, it is stored in plain text in the config file.`,
 		Example: `  $ bb auth login --hostname bitbucket.example.com
   $ echo "$TOKEN" | bb auth login --hostname https://example.com/bitbucket --with-token`,
 		Args: cobra.NoArgs,
@@ -83,16 +93,31 @@ func newAuthLoginCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cfg.Hosts[key] = &config.Host{BaseURL: base, Token: token, User: u.Slug, GitProtocol: gitProtocol}
+			if old, ok := cfg.Hosts[key]; ok && old.User != "" {
+				_ = config.KeyringDelete(key, old.User)
+			}
+			h := &config.Host{BaseURL: base, User: u.Slug, GitProtocol: gitProtocol}
+			storage := "keyring"
+			if !insecureStorage {
+				if err := config.KeyringSet(key, u.Slug, token); err != nil {
+					fmt.Fprintf(stderr, "warning: could not store token in the OS keyring (%v); storing it in plain text in %s\n", err, config.Path())
+					insecureStorage = true
+				}
+			}
+			if insecureStorage {
+				h.Token, storage = token, config.Path()
+			}
+			cfg.Hosts[key] = h
 			if err := cfg.Save(); err != nil {
 				return err
 			}
-			success("Logged in to %s as %s", key, bold(u.Slug))
+			success("Logged in to %s as %s (token stored in %s)", key, bold(u.Slug), storage)
 			return nil
 		},
 	}
 	cmd.Flags().StringVarP(&hostname, "hostname", "h", "", "Bitbucket host or base URL (include the context path if any)")
 	cmd.Flags().BoolVar(&withToken, "with-token", false, "Read token from standard input")
+	cmd.Flags().BoolVar(&insecureStorage, "insecure-storage", false, "Save the token in plain text instead of the OS credential store")
 	cmd.Flags().StringVarP(&gitProtocol, "git-protocol", "p", "https", "Protocol for git operations: {ssh|https}")
 	return cmd
 }
@@ -130,10 +155,7 @@ func newAuthStatusCmd() *cobra.Command {
 					failed = true
 					continue
 				}
-				source := config.Path()
-				if os.Getenv("BB_TOKEN") != "" {
-					source = "BB_TOKEN"
-				}
+				source := h.TokenSource
 				u, err := bitbucket.New(h.BaseURL, h.Token).Whoami()
 				if err != nil {
 					fmt.Fprintf(stdout, "  %s Failed to log in to %s using token (%s): %v\n", red("X"), key, source, err)
@@ -186,6 +208,9 @@ func newAuthLogoutCmd() *cobra.Command {
 			h, ok := cfg.Hosts[key]
 			if !ok {
 				return fmt.Errorf("not logged in to %s", key)
+			}
+			if err := config.KeyringDelete(key, h.User); err != nil {
+				return fmt.Errorf("removing token from the OS keyring: %w", err)
 			}
 			delete(cfg.Hosts, key)
 			if err := cfg.Save(); err != nil {

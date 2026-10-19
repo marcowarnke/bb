@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/zalando/go-keyring"
 )
 
 type Host struct {
@@ -17,6 +19,8 @@ type Host struct {
 	Token       string `json:"token,omitempty"`
 	User        string `json:"user,omitempty"`
 	GitProtocol string `json:"git_protocol,omitempty"`
+	// TokenSource is where Resolve found the token: "BB_TOKEN", "keyring" or the config path.
+	TokenSource string `json:"-"`
 }
 
 type Config struct {
@@ -125,8 +129,17 @@ func (c *Config) Resolve(name string) (string, *Host, error) {
 			return "", nil, fmt.Errorf("multiple hosts configured (%s); set BB_HOST or pass --hostname/-R HOST/PROJECT/REPO", strings.Join(c.HostNames(), ", "))
 		}
 	}
-	if t := os.Getenv("BB_TOKEN"); t != "" {
-		h.Token = t
+	switch t := os.Getenv("BB_TOKEN"); {
+	case t != "":
+		h.Token, h.TokenSource = t, "BB_TOKEN"
+	case h.Token != "":
+		h.TokenSource = c.path
+	case h.User != "":
+		tok, err := KeyringGet(key, h.User)
+		if err != nil && !errors.Is(err, keyring.ErrNotFound) {
+			return key, h, fmt.Errorf("reading token for %s from the OS keyring: %w", key, err)
+		}
+		h.Token, h.TokenSource = tok, "keyring"
 	}
 	if h.Token == "" {
 		return key, h, fmt.Errorf("not logged in to %s: run `bb auth login --hostname %s` or set BB_TOKEN", key, key)
