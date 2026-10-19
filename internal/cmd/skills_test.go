@@ -58,3 +58,28 @@ func hasFlag(c *cobra.Command, name string) bool {
 	}
 	return len(name) == 2 && fs.ShorthandLookup(name[1:]) != nil
 }
+
+func TestSkillsInstall(t *testing.T) {
+	dir := t.TempDir()
+	_, errOut, code := run(t, "", "skills", "install", "--dir", dir)
+	if code != 0 || strings.Count(errOut, "Installed") != 3 {
+		t.Fatalf("code=%d err=%q", code, errOut)
+	}
+	want, _ := os.ReadFile("../../skills/bb-review/SKILL.md")
+	got, _ := os.ReadFile(filepath.Join(dir, "bb-review", "SKILL.md"))
+	if string(got) != string(want) {
+		t.Fatal("installed skill differs from source")
+	}
+	os.WriteFile(filepath.Join(dir, "bb", "SKILL.md"), []byte("stale"), 0o644)
+	_, errOut, _ = run(t, "", "skills", "install", "--dir", dir, "bb", "bb-review")
+	if !strings.Contains(errOut, "Updated bb") || !strings.Contains(errOut, "bb-review is up to date") {
+		t.Fatalf("err=%q", errOut)
+	}
+	if _, errOut, code = run(t, "", "skills", "install", "--dir", dir, "nope"); code == 0 || !strings.Contains(errOut, "available: bb, bb-address-feedback, bb-review") {
+		t.Fatalf("code=%d err=%q", code, errOut)
+	}
+	out, _, _ := run(t, "", "skills", "list")
+	if !strings.HasPrefix(out, "bb\tBitbucket Data Center CLI") {
+		t.Fatalf("list=%q", out)
+	}
+}

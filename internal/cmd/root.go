@@ -58,7 +58,7 @@ Modelled after the GitHub CLI (gh): same commands, flags and output conventions.
   $ bb pr review 42 --approve`,
 	}
 	root.SetFlagErrorFunc(flagError)
-	root.AddCommand(newAuthCmd(), newBrowseCmd(), newPRCmd(), newRepoCmd(), newAPICmd())
+	root.AddCommand(newAuthCmd(), newBrowseCmd(), newPRCmd(), newRepoCmd(), newAPICmd(), newSkillsCmd())
 	return root
 }
 

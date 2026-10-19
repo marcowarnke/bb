@@ -105,7 +105,13 @@ bb pr threads 42 --json id,kind,path,line,body,replies,context
 bb pr comment 42 --reply-to 1234 -b "Fixed in 3f2a1c9" --resolve
 ```
 
-Install the skills: `cp -r skills/* ~/.claude/skills/` (or a project's `.claude/skills/`).
+Install the skills (embedded in the binary, so they always match its flags; re-run after upgrading):
+
+```sh
+bb skills install              # ~/.claude/skills
+bb skills install --project    # <repo>/.claude/skills
+bb skills list
+```
 
 ## Dev
 
