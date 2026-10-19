@@ -31,7 +31,7 @@ Without an argument, the pull request for the current branch is used.`,
 		newPRListCmd(&repoFlag), newPRViewCmd(&repoFlag), newPRStatusCmd(&repoFlag),
 		newPRDiffCmd(&repoFlag), newPRChecksCmd(&repoFlag), newPRCheckoutCmd(&repoFlag),
 		newPRCreateCmd(&repoFlag), newPREditCmd(&repoFlag), newPRReadyCmd(&repoFlag),
-		newPRCommentCmd(&repoFlag), newPRReviewCmd(&repoFlag),
+		newPRCommentCmd(&repoFlag), newPRReviewCmd(&repoFlag), newPRThreadsCmd(&repoFlag),
 		newPRMergeCmd(&repoFlag), newPRCloseCmd(&repoFlag), newPRReopenCmd(&repoFlag),
 	)
 	return cmd
@@ -39,9 +39,9 @@ Without an argument, the pull request for the current branch is used.`,
 
 var prFields = []string{
 	"author", "baseRefName", "baseRefOid", "body", "closed", "closedAt", "commentCount", "comments",
-	"createdAt", "files", "headRefName", "headRefOid", "headRepository", "id", "isCrossRepository",
+	"commits", "createdAt", "files", "headRefName", "headRefOid", "headRepository", "id", "isCrossRepository",
 	"isDraft", "latestReviews", "mergeable", "number", "participants", "reviewDecision",
-	"reviewRequests", "state", "statusCheckRollup", "taskCount", "title", "updatedAt", "url", "version",
+	"reviewRequests", "state", "statusCheckRollup", "taskCount", "title", "unresolvedThreads", "updatedAt", "url", "version",
 }
 
 // ghState maps Bitbucket states to gh's vocabulary.
@@ -139,6 +139,34 @@ func prJSON(c *bitbucket.Client, r Repo, pr *bitbucket.PullRequest, e *exporter)
 			out = append(out, commentJSON(cm))
 		}
 		m["comments"] = out
+	}
+	if e.wants("commits") {
+		cs, err := c.PRCommits(r.Project, r.Slug, pr.ID)
+		if err != nil {
+			return nil, err
+		}
+		out := []map[string]any{}
+		for _, cm := range cs {
+			headline, _, _ := strings.Cut(cm.Message, "\n")
+			out = append(out, map[string]any{
+				"oid": cm.ID, "messageHeadline": headline, "message": cm.Message,
+				"author": cm.Author.Name, "authoredDate": ts(cm.AuthorTimestamp),
+			})
+		}
+		m["commits"] = out
+	}
+	if e.wants("unresolvedThreads") {
+		threads, err := buildThreads(c, r, pr)
+		if err != nil {
+			return nil, err
+		}
+		n := 0
+		for _, t := range threads {
+			if t.open() {
+				n++
+			}
+		}
+		m["unresolvedThreads"] = n
 	}
 	if e.wants("files") {
 		ch, err := c.Changes(r.Project, r.Slug, pr.ID)

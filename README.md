@@ -48,21 +48,22 @@ Repo resolution: `-R [HOST/]PROJECT/REPO` (or URL) → `BB_REPO` → git remotes
 | `pr list` | `-s open\|closed\|merged\|all`, `-A/--author`, `--reviewer`, `-B`, `-H`, `-S`, `-d`, `-L` |
 | `pr view` | `-c/--comments` shows threads with comment IDs and `file:line` anchors |
 | `pr status` | Current branch / created by you / review requested |
-| `pr diff` | Unified diff; `--name-only`, `--patch`, `--color` |
-| `pr checks` | Build statuses of head commit; exit 1 fail, 8 pending |
+| `pr diff` | Unified diff; `--name-only`, `--patch`, `--color`; agent options: `-n` (explicit old/new line numbers), `--json`, `--stat`, `-- <paths>`, `--exclude`, `--max-lines`, `--since-last-review`, `--since <sha>` |
+| `pr threads` | Open tasks/threads with IDs, anchors, code context, replies; `--needs-reply`, `--started-by`, `--all`, `--json` |
+| `pr checks` | Build statuses of head commit; `--watch`; exit 1 fail, 8 pending |
 | `pr checkout` | Same-repo and fork PRs (`refs/pull-requests/N/from`) |
 | `pr create` | `-t -b -F -B -H -r -d --fill --fill-first --dry-run`; adds default reviewers unless `--no-default-reviewers` |
 | `pr edit` | `-t -b -F -B --add-reviewer --remove-reviewer` |
 | `pr ready [--undo]` | Draft toggle (DC 8.18+) |
-| `pr comment` | gh flags + `--path --line --line-type added\|removed\|context --reply-to ID --task` |
-| `pr review` | `--approve` → Approved, `--request-changes` → Needs work, `--comment`; `-b` posts a comment |
+| `pr comment` | gh flags + `--path --line` (validated against the diff, line type inferred), `--line-type removed`, `--suggestion`, `--task`, `--reply-to ID [--resolve\|--reopen]` |
+| `pr review` | `--approve` → Approved, `--request-changes` → Needs work, `--comment`; `--input review.json [--dry-run]` posts a whole validated review |
 | `pr merge` | `--merge`(no-ff) / `--squash` / `--rebase`(rebase-no-ff), default = repo default; `-d`, `-t`, `-b` |
 | `pr close` / `reopen` | Decline / reopen; `-c` comment, `close -d` deletes branch |
 | `repo view` / `clone` | `view` prints README; `clone` honours `git_protocol` |
 | `api` | Raw REST: `-X -f -F -H --input --paginate --jq -i`; `{project}` `{repo}` `{branch}` placeholders; non-`rest/` paths get `rest/api/1.0/` |
 
 PR arguments: number, URL, or branch; omitted = current branch.
-`--json fields` / `--jq` / `--template` on `pr list|view|status|checks`, `repo view`; `--json` alone lists fields.
+`--json fields` / `--jq` / `--template` on `pr list|view|status|checks|threads`, `repo view`; `--json` alone lists fields. `pr view`/`list` add `commits` and `unresolvedThreads` fields.
 
 ### gh → Bitbucket mapping
 
@@ -80,20 +81,31 @@ Reviewer values resolve as slug → username → email → unique `users?filter=
 
 Non-TTY output is tab-separated/plain, no color, no prompts (missing required input → error). Prefer `--json` + `--jq`. Exit codes: 0 ok, 1 error, 4 auth, 8 checks pending.
 
-Review loop:
+Two loops, each shipped as a Claude Code skill in `skills/`:
+
+| Skill | Loop |
+|---|---|
+| `bb` | Command reference, conventions |
+| `bb-review` | view → diff `--stat` → diff `-n` per path → `review.json` → `review --input --dry-run` → submit → report. Re-review: `threads --started-by @me --needs-reply` → verify/resolve → `diff --since-last-review` |
+| `bb-address-feedback` | `list --author @me --json unresolvedThreads` → `checkout` → `threads --json` → fix/commit/push → `comment --reply-to ID [--resolve]` → `threads --needs-reply` + `checks --watch` → report |
+
+Review loop core:
 
 ```sh
-bb pr view 42 --json title,body,headRefName,baseRefName,reviewDecision
-bb pr diff 42 --name-only
-bb pr diff 42
-bb pr view 42 --comments
-bb pr comment 42 -b "Null deref if cfg missing" --path svc/load.go --line 88
-bb pr comment 42 -b "Done" --reply-to 1234
-bb pr review 42 --request-changes -b "See inline comments"
+bb pr diff 42 -n -- src/api/                      # OLD NEW MARK text
+bb pr review 42 --input review.json --dry-run      # validates every anchor, posts nothing
+bb pr review 42 --input review.json                # comments → summary → status
 ```
 
-See `skill/SKILL.md` for a drop-in Claude Code skill.
+Feedback loop core:
+
+```sh
+bb pr threads 42 --json id,kind,path,line,body,replies,context
+bb pr comment 42 --reply-to 1234 -b "Fixed in 3f2a1c9" --resolve
+```
+
+Install the skills: `cp -r skills/* ~/.claude/skills/` (or a project's `.claude/skills/`).
 
 ## Dev
 
-`make test` — command tests run against an in-process fake DC server (`internal/cmd/cmd_test.go`).
+`make test` — command tests run against an in-process fake DC server (`internal/cmd/cmd_test.go`; loop scenarios in `loops_test.go`).

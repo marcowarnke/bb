@@ -116,6 +116,8 @@ type Anchor struct {
 	LineType string `json:"lineType,omitempty"`
 	FileType string `json:"fileType,omitempty"`
 	DiffType string `json:"diffType,omitempty"`
+	FromHash string `json:"fromHash,omitempty"`
+	ToHash   string `json:"toHash,omitempty"`
 	Orphaned bool   `json:"orphaned,omitempty"`
 }
 
@@ -323,71 +325,9 @@ func (c *Client) RawDiff(project, slug string, id int, patch bool) (string, erro
 	if !IsNotFound(err) || patch {
 		return "", err
 	}
-	var d jsonDiff
-	if err := c.Do("GET", PRPath(project, slug, id)+"/diff", url.Values{"contextLines": {"3"}}, nil, &d); err != nil {
+	d, err := c.PRDiff(project, slug, id, "", 3)
+	if err != nil {
 		return "", err
 	}
-	return d.unified(), nil
-}
-
-type jsonDiff struct {
-	Diffs []struct {
-		Source      *struct{ ToString string } `json:"source"`
-		Destination *struct{ ToString string } `json:"destination"`
-		Binary      bool                       `json:"binary"`
-		Hunks       []struct {
-			SourceLine      int `json:"sourceLine"`
-			SourceSpan      int `json:"sourceSpan"`
-			DestinationLine int `json:"destinationLine"`
-			DestinationSpan int `json:"destinationSpan"`
-			Segments        []struct {
-				Type  string `json:"type"`
-				Lines []struct {
-					Line string `json:"line"`
-				} `json:"lines"`
-			} `json:"segments"`
-		} `json:"hunks"`
-	} `json:"diffs"`
-}
-
-func (d jsonDiff) unified() string {
-	var b strings.Builder
-	for _, f := range d.Diffs {
-		src, dst := "/dev/null", "/dev/null"
-		a, bb := "", ""
-		if f.Source != nil {
-			src, a = "a/"+f.Source.ToString, f.Source.ToString
-		}
-		if f.Destination != nil {
-			dst, bb = "b/"+f.Destination.ToString, f.Destination.ToString
-		}
-		if a == "" {
-			a = bb
-		}
-		if bb == "" {
-			bb = a
-		}
-		fmt.Fprintf(&b, "diff --git a/%s b/%s\n", a, bb)
-		if f.Binary {
-			fmt.Fprintf(&b, "Binary files %s and %s differ\n", src, dst)
-			continue
-		}
-		fmt.Fprintf(&b, "--- %s\n+++ %s\n", src, dst)
-		for _, h := range f.Hunks {
-			fmt.Fprintf(&b, "@@ -%d,%d +%d,%d @@\n", h.SourceLine, h.SourceSpan, h.DestinationLine, h.DestinationSpan)
-			for _, s := range h.Segments {
-				prefix := " "
-				switch s.Type {
-				case "ADDED":
-					prefix = "+"
-				case "REMOVED":
-					prefix = "-"
-				}
-				for _, l := range s.Lines {
-					b.WriteString(prefix + l.Line + "\n")
-				}
-			}
-		}
-	}
-	return b.String()
+	return d.Unified(), nil
 }

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -24,6 +25,7 @@ var (
 	stdout io.Writer = os.Stdout
 	stderr io.Writer = os.Stderr
 	isTTY            = func() bool { return term.IsTerminal(int(os.Stdout.Fd())) }
+	sleep            = time.Sleep
 )
 
 // ExitError carries a specific exit code (gh: 1 error, 2 cancel, 4 auth, 8 pending checks).

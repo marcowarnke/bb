@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/zalando/go-keyring"
@@ -20,9 +21,52 @@ type fakeBB struct {
 	t        *testing.T
 	mu       sync.Mutex
 	requests []string
-	bodies   map[string]map[string]any
+	bodies   map[string]map[string]any   // last body per "METHOD path"
+	all      map[string][]map[string]any // every body per "METHOD path"
+	nextID   int
 	srv      *httptest.Server
 }
+
+// Fixture diff for src/x.go (old → new):
+//
+//	old 1 package x   new 1 package x
+//	old 2 old()       (removed)
+//	                  new 2 new()    (added)
+//	                  new 3 extra()  (added)
+//	old 3 tail        new 4 tail
+//	old 4 end         new 5 end
+func xDiff() map[string]any {
+	seg := func(typ string, lines ...[2]int) map[string]any {
+		var ls []any
+		for _, l := range lines {
+			ls = append(ls, map[string]any{"source": l[0], "destination": l[1], "line": fmt.Sprintf("%s %d/%d", typ, l[0], l[1])})
+		}
+		return map[string]any{"type": typ, "lines": ls}
+	}
+	return map[string]any{
+		"source": map[string]any{"toString": "src/x.go"}, "destination": map[string]any{"toString": "src/x.go"},
+		"hunks": []any{map[string]any{
+			"sourceLine": 1, "sourceSpan": 4, "destinationLine": 1, "destinationSpan": 5,
+			"segments": []any{
+				seg("CONTEXT", [2]int{1, 1}), seg("REMOVED", [2]int{2, 2}),
+				seg("ADDED", [2]int{3, 2}, [2]int{3, 3}), seg("CONTEXT", [2]int{3, 4}, [2]int{4, 5}),
+			},
+		}},
+	}
+}
+
+func docsDiff() map[string]any {
+	return map[string]any{
+		"destination": map[string]any{"toString": "docs/a.md"},
+		"hunks": []any{map[string]any{"sourceLine": 0, "sourceSpan": 0, "destinationLine": 1, "destinationSpan": 2,
+			"segments": []any{map[string]any{"type": "ADDED", "lines": []any{
+				map[string]any{"source": 0, "destination": 1, "line": "# Doc"},
+				map[string]any{"source": 0, "destination": 2, "line": "text"},
+			}}}}},
+	}
+}
+
+const xContent = "package x\nnew()\nextra()\ntail\nend\n"
 
 const prBase = "/rest/api/1.0/projects/PROJ/repos/repo/pull-requests"
 
@@ -38,6 +82,9 @@ func prJSONFixture(url string) map[string]any {
 			map[string]any{"user": map[string]any{"name": "bob", "slug": "bob"}, "status": "APPROVED"},
 			map[string]any{"user": map[string]any{"name": "carol", "slug": "carol"}, "status": "UNAPPROVED"},
 		},
+		"participants": []any{
+			map[string]any{"user": map[string]any{"name": "me", "slug": "me"}, "role": "PARTICIPANT", "lastReviewedCommit": "old111"},
+		},
 		"links":      map[string]any{"self": []any{map[string]any{"href": url + "/projects/PROJ/repos/repo/pull-requests/7"}}},
 		"properties": map[string]any{"commentCount": 2, "openTaskCount": 1},
 	}
@@ -52,7 +99,7 @@ func page(vals ...any) map[string]any {
 
 func newFake(t *testing.T) *fakeBB {
 	keyring.MockInit() // never touch the real OS keyring from tests
-	f := &fakeBB{t: t, bodies: map[string]map[string]any{}}
+	f := &fakeBB{t: t, bodies: map[string]map[string]any{}, all: map[string][]map[string]any{}, nextID: 100}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.handle))
 	t.Cleanup(f.srv.Close)
 	t.Setenv("BB_CONFIG_DIR", t.TempDir())
@@ -76,9 +123,13 @@ func (f *fakeBB) handle(w http.ResponseWriter, r *http.Request) {
 		var m map[string]any
 		if json.Unmarshal(data, &m) == nil {
 			f.bodies[key] = m
+			f.all[key] = append(f.all[key], m)
 		}
 	}
+	f.nextID++
+	id := f.nextID
 	f.mu.Unlock()
+	q := r.URL.Query()
 	pr := prJSONFixture(f.srv.URL)
 	var out any
 	switch key {
@@ -104,15 +155,46 @@ func (f *fakeBB) handle(w http.ResponseWriter, r *http.Request) {
 	case "GET " + prBase + "/7/changes":
 		out = page(map[string]any{"type": "MODIFY", "path": map[string]any{"toString": "src/x.go"}})
 	case "GET " + prBase + "/7/activities":
-		reply := map[string]any{"id": 11, "text": "reply", "author": map[string]any{"slug": "alice"}}
-		root := map[string]any{"id": 10, "text": "root comment", "author": map[string]any{"slug": "bob"}, "comments": []any{reply}}
+		// Threads: #10 by bob on src/x.go:5 with alice's reply #11 (needs reply from me);
+		// task #12 by me on src/x.go:2, open; #13 by carol, resolved.
+		reply := map[string]any{"id": 11, "text": "reply", "author": map[string]any{"slug": "alice"}, "createdDate": 3}
+		root := map[string]any{"id": 10, "text": "root comment", "author": map[string]any{"slug": "bob"}, "createdDate": 1, "comments": []any{reply}}
+		task := map[string]any{"id": 12, "text": "handle nil", "author": map[string]any{"slug": "me"}, "createdDate": 4, "severity": "BLOCKER", "state": "OPEN"}
+		done := map[string]any{"id": 13, "text": "nice", "author": map[string]any{"slug": "carol"}, "createdDate": 5, "threadResolved": true}
 		out = page(
+			map[string]any{"id": 5, "action": "COMMENTED", "comment": done},
+			map[string]any{"id": 4, "action": "COMMENTED", "comment": task, "commentAnchor": map[string]any{"path": "src/x.go", "line": 2, "lineType": "ADDED", "fileType": "TO", "toHash": "abc123"}},
 			map[string]any{"id": 2, "action": "COMMENTED", "comment": reply},
-			map[string]any{"id": 1, "action": "COMMENTED", "comment": root, "commentAnchor": map[string]any{"path": "src/x.go", "line": 5, "lineType": "ADDED"}},
+			map[string]any{"id": 1, "action": "COMMENTED", "comment": root, "commentAnchor": map[string]any{"path": "src/x.go", "line": 5, "lineType": "ADDED", "fileType": "TO", "toHash": "abc123"}},
 			map[string]any{"id": 0, "action": "OPENED"},
 		)
 	case "POST " + prBase + "/7/comments":
-		out = map[string]any{"id": 99}
+		out = map[string]any{"id": id}
+	case "GET " + prBase + "/7/comments/10", "GET " + prBase + "/7/comments/12":
+		out = map[string]any{"id": 0, "version": 4}
+	case "PUT " + prBase + "/7/comments/10", "PUT " + prBase + "/7/comments/12":
+		out = map[string]any{}
+	case "GET " + prBase + "/7/diff":
+		out = map[string]any{"fromHash": "def456", "toHash": "abc123", "diffs": []any{xDiff(), docsDiff()}}
+	case "GET " + prBase + "/7/diff/src/x.go":
+		out = map[string]any{"diffs": []any{xDiff()}}
+	case "GET " + prBase + "/7/diff/docs/a.md":
+		out = map[string]any{"diffs": []any{docsDiff()}}
+	case "GET /rest/api/1.0/projects/PROJ/repos/repo/compare/diff":
+		if q.Get("from") != "abc123" || q.Get("to") != "old111" {
+			w.WriteHeader(404)
+			return
+		}
+		out = map[string]any{"diffs": []any{xDiff()}}
+	case "GET /rest/api/1.0/projects/PROJ/repos/repo/raw/src/x.go":
+		if q.Get("at") != "abc123" {
+			w.WriteHeader(404)
+			return
+		}
+		fmt.Fprint(w, xContent)
+		return
+	case "GET " + prBase + "/7/commits":
+		out = page(map[string]any{"id": "abc123", "message": "Add feature\n\nDetails", "author": map[string]any{"name": "Alice"}})
 	case "PUT " + prBase + "/7/participants/me":
 		out = map[string]any{}
 	case "GET " + prBase + "/7/merge":
@@ -130,7 +212,11 @@ func (f *fakeBB) handle(w http.ResponseWriter, r *http.Request) {
 	case "POST " + prBase:
 		out = pr
 	case "GET /rest/build-status/1.0/commits/abc123":
-		out = page(map[string]any{"state": "SUCCESSFUL", "name": "CI", "url": "http://ci"}, map[string]any{"state": "INPROGRESS", "name": "Lint"})
+		lint := "INPROGRESS" // first poll pending, then green
+		if strings.Count(strings.Join(f.requests, "\n"), "build-status") > 1 {
+			lint = "SUCCESSFUL"
+		}
+		out = page(map[string]any{"state": "SUCCESSFUL", "name": "CI", "url": "http://ci"}, map[string]any{"state": lint, "name": "Lint"})
 	default:
 		w.WriteHeader(404)
 		fmt.Fprintf(w, `{"errors":[{"message":"no route %s"}]}`, key)
@@ -146,6 +232,9 @@ func run(t *testing.T, in string, args ...string) (string, string, int) {
 	isTTY = func() bool { return false }
 	root := NewRoot()
 	root.SetArgs(args)
+	root.SetOut(&o)
+	root.SetErr(&e)
+	sleep = func(time.Duration) {}
 	code := 0
 	if err := root.Execute(); err != nil {
 		if ee, ok := err.(*ExitError); ok {
@@ -220,13 +309,13 @@ func TestPRDiff(t *testing.T) {
 
 func TestPRInlineComment(t *testing.T) {
 	f := newFake(t)
-	out, errOut, code := run(t, "", "pr", "comment", "7", "-R", "PROJ/repo", "-b", "nit", "--path", "src/x.go", "--line", "3", "--line-type", "removed", "--task")
-	if code != 0 || !strings.HasSuffix(strings.TrimSpace(out), "/pull-requests/7/overview?commentId=99") {
+	out, errOut, code := run(t, "", "pr", "comment", "7", "-R", "PROJ/repo", "-b", "nit", "--path", "src/x.go", "--line", "2", "--line-type", "removed", "--task")
+	if code != 0 || !strings.Contains(out, "/pull-requests/7/overview?commentId=") {
 		t.Fatalf("code=%d out=%q err=%q", code, out, errOut)
 	}
 	body := f.bodies["POST "+prBase+"/7/comments"]
 	anchor := body["anchor"].(map[string]any)
-	if anchor["fileType"] != "FROM" || anchor["lineType"] != "REMOVED" || anchor["line"] != float64(3) || body["severity"] != "BLOCKER" {
+	if anchor["fileType"] != "FROM" || anchor["lineType"] != "REMOVED" || anchor["line"] != float64(2) || body["severity"] != "BLOCKER" {
 		t.Fatalf("payload=%v", body)
 	}
 	run(t, "body from stdin", "pr", "comment", "7", "-R", "PROJ/repo", "-F", "-", "--reply-to", "10")
