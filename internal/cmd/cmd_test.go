@@ -25,6 +25,7 @@ type fakeBB struct {
 	all      map[string][]map[string]any // every body per "METHOD path"
 	nextID   int
 	srv      *httptest.Server
+	merge    map[string]any // GET …/merge response; nil = mergeable
 }
 
 // Fixture diff for src/x.go (old → new):
@@ -199,6 +200,9 @@ func (f *fakeBB) handle(w http.ResponseWriter, r *http.Request) {
 		out = map[string]any{}
 	case "GET " + prBase + "/7/merge":
 		out = map[string]any{"canMerge": true}
+		if f.merge != nil {
+			out = f.merge
+		}
 	case "POST " + prBase + "/7/merge", "POST " + prBase + "/7/decline", "PUT " + prBase + "/7":
 		out = pr
 	case "GET /rest/api/1.0/projects/PROJ/repos/repo/default-branch":
@@ -438,5 +442,35 @@ func TestAllCommandsHelp(t *testing.T) {
 	walk(NewRoot())
 	if n < 20 {
 		t.Fatalf("only %d commands walked", n)
+	}
+}
+
+func TestMergeBlockers(t *testing.T) {
+	f := newFake(t)
+	out, _, _ := run(t, "", "pr", "view", "7", "-R", "PROJ/repo")
+	if !strings.Contains(out, "merge:\tready\n") {
+		t.Fatalf("out=%q", out)
+	}
+	f.merge = map[string]any{"canMerge": false, "conflicted": true, "vetoes": []any{
+		map[string]any{"summaryMessage": "Not all required reviewers have approved yet.", "detailedMessage": "At least 2 approvals are required."},
+		map[string]any{"summaryMessage": "Open tasks", "detailedMessage": "Open tasks"},
+	}}
+	out, _, _ = run(t, "", "pr", "view", "7", "-R", "PROJ/repo")
+	want := "merge:\tblocked: the pull request has merge conflicts; Not all required reviewers have approved yet: At least 2 approvals are required.; Open tasks\n"
+	if !strings.Contains(out, want) {
+		t.Fatalf("out=%q", out)
+	}
+	out, _, _ = run(t, "", "pr", "view", "7", "-R", "PROJ/repo", "--json", "mergeStateStatus,mergeBlockers", "--jq", ".mergeStateStatus, (.mergeBlockers | length)")
+	if out != "DIRTY\n3\n" {
+		t.Fatalf("json=%q", out)
+	}
+	_, errOut, code := run(t, "", "pr", "merge", "7", "-R", "PROJ/repo", "--dry-run")
+	if code != 1 || !strings.Contains(errOut, "  - Open tasks") {
+		t.Fatalf("code=%d err=%q", code, errOut)
+	}
+	f.merge = nil
+	_, errOut, code = run(t, "", "pr", "merge", "7", "-R", "PROJ/repo", "--dry-run", "--squash")
+	if code != 0 || !strings.Contains(errOut, "can be merged (squash)") || f.bodies["POST "+prBase+"/7/merge"] != nil {
+		t.Fatalf("code=%d err=%q", code, errOut)
 	}
 }

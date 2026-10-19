@@ -73,6 +73,7 @@ Push before replying, so the commit SHAs you cite exist on the server.
 ```sh
 bb pr threads N --needs-reply   # only `flag` items should remain
 bb pr checks N --watch          # exit 0 = green; 1 = failure
+bb pr merge N --dry-run         # exit 1 lists what still blocks the merge
 ```
 
 If a check fails, read the failure through the check's link, fix it, push (step 4), and run this step again.
@@ -83,4 +84,5 @@ For each PR, report:
 - The URL.
 - Each item: `#id` with fixed / answered / pushed back / flagged, plus the commit SHA where relevant.
 - The CI result.
+- What still blocks the merge (from `--dry-run`), e.g. missing approvals. Never merge unless asked.
 - The flagged items, with the question the user needs to decide.

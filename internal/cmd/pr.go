@@ -40,7 +40,7 @@ Without an argument, the pull request for the current branch is used.`,
 var prFields = []string{
 	"author", "baseRefName", "baseRefOid", "body", "closed", "closedAt", "commentCount", "comments",
 	"commits", "createdAt", "files", "headRefName", "headRefOid", "headRepository", "id", "isCrossRepository",
-	"isDraft", "latestReviews", "mergeable", "number", "participants", "reviewDecision",
+	"isDraft", "latestReviews", "mergeBlockers", "mergeStateStatus", "mergeable", "number", "participants", "reviewDecision",
 	"reviewRequests", "state", "statusCheckRollup", "taskCount", "title", "unresolvedThreads", "updatedAt", "url", "version",
 }
 
@@ -79,6 +79,44 @@ func reviewDecision(pr *bitbucket.PullRequest) string {
 		return "APPROVED"
 	}
 	return "REVIEW_REQUIRED"
+}
+
+// mergeBlockers explains why a PR can't be merged: conflicts and merge-check
+// vetoes (required approvals, builds, open tasks, …). Empty when mergeable.
+func mergeBlockers(ms *bitbucket.MergeStatus) []string {
+	if ms.CanMerge {
+		return nil
+	}
+	var out []string
+	if ms.Conflicted {
+		out = append(out, "the pull request has merge conflicts")
+	}
+	for _, v := range ms.Vetoes {
+		msg := strings.TrimSpace(v.SummaryMessage)
+		if d := strings.TrimSpace(v.DetailedMessage); d != "" && d != msg {
+			msg = strings.TrimSuffix(msg, ".") + ": " + d
+		}
+		out = append(out, msg)
+	}
+	if len(out) == 0 {
+		out = append(out, "Bitbucket reports the pull request as not mergeable")
+	}
+	return out
+}
+
+// mergeStateStatus maps Bitbucket's merge status to gh's vocabulary.
+func mergeStateStatus(pr *bitbucket.PullRequest, ms *bitbucket.MergeStatus, err error) string {
+	switch {
+	case err != nil || pr.State != "OPEN":
+		return "UNKNOWN"
+	case ms.Conflicted:
+		return "DIRTY"
+	case ms.CanMerge:
+		return "CLEAN"
+	case pr.Draft:
+		return "DRAFT"
+	}
+	return "BLOCKED"
 }
 
 func userJSON(u bitbucket.User) map[string]any {
@@ -183,7 +221,7 @@ func prJSON(c *bitbucket.Client, r Repo, pr *bitbucket.PullRequest, e *exporter)
 		}
 		m["files"] = out
 	}
-	if e.wants("mergeable") {
+	if e.wants("mergeable") || e.wants("mergeStateStatus") || e.wants("mergeBlockers") {
 		ms, err := c.MergeStatus(r.Project, r.Slug, pr.ID)
 		switch {
 		case err != nil:
@@ -193,6 +231,12 @@ func prJSON(c *bitbucket.Client, r Repo, pr *bitbucket.PullRequest, e *exporter)
 		default:
 			m["mergeable"] = "MERGEABLE"
 		}
+		m["mergeStateStatus"] = mergeStateStatus(pr, ms, err)
+		blockers := []string{}
+		if err == nil && pr.State == "OPEN" {
+			blockers = append(blockers, mergeBlockers(ms)...)
+		}
+		m["mergeBlockers"] = blockers
 	}
 	if e.wants("statusCheckRollup") {
 		bs, err := c.BuildStatuses(pr.FromRef.LatestCommit)
@@ -392,7 +436,11 @@ With --comments, all comment threads are shown including inline comments
 					return err
 				}
 			}
-			printPR(stdout, pr, cs, comments)
+			var ms *bitbucket.MergeStatus
+			if pr.State == "OPEN" {
+				ms, _ = c.MergeStatus(r.Project, r.Slug, pr.ID) // best effort; view works without it
+			}
+			printPR(stdout, pr, ms, cs, comments)
 			return nil
 		},
 	}
@@ -409,7 +457,18 @@ func argOr(args []string) string {
 	return ""
 }
 
-func printPR(w io.Writer, pr *bitbucket.PullRequest, cs []bitbucket.Comment, withComments bool) {
+// mergeLine summarises mergeability for pr view; "" when unknown.
+func mergeLine(ms *bitbucket.MergeStatus) string {
+	if ms == nil {
+		return ""
+	}
+	if ms.CanMerge {
+		return "ready"
+	}
+	return "blocked: " + strings.Join(mergeBlockers(ms), "; ")
+}
+
+func printPR(w io.Writer, pr *bitbucket.PullRequest, ms *bitbucket.MergeStatus, cs []bitbucket.Comment, withComments bool) {
 	if !isTTY() {
 		fmt.Fprintf(w, "title:\t%s\n", pr.Title)
 		fmt.Fprintf(w, "state:\t%s\n", ghState(pr))
@@ -422,6 +481,9 @@ func printPR(w io.Writer, pr *bitbucket.PullRequest, cs []bitbucket.Comment, wit
 		fmt.Fprintf(w, "draft:\t%t\n", pr.Draft)
 		fmt.Fprintf(w, "comments:\t%d\n", pr.Properties.CommentCount)
 		fmt.Fprintf(w, "open tasks:\t%d\n", pr.Properties.OpenTaskCount)
+		if ml := mergeLine(ms); ml != "" {
+			fmt.Fprintf(w, "merge:\t%s\n", ml)
+		}
 		fmt.Fprintln(w, "--")
 		fmt.Fprintln(w, pr.Description)
 		if withComments {
@@ -446,7 +508,18 @@ func printPR(w io.Writer, pr *bitbucket.PullRequest, cs []bitbucket.Comment, wit
 	if rs := reviewerSummary(pr); rs != "" {
 		fmt.Fprintf(w, "%s %s\n", bold("Reviewers:"), rs)
 	}
-	fmt.Fprintf(w, "%s %d comments, %d open tasks\n\n", bold("Activity:"), pr.Properties.CommentCount, pr.Properties.OpenTaskCount)
+	fmt.Fprintf(w, "%s %d comments, %d open tasks\n", bold("Activity:"), pr.Properties.CommentCount, pr.Properties.OpenTaskCount)
+	if ms != nil {
+		if ms.CanMerge {
+			fmt.Fprintf(w, "%s %s\n", bold("Merge:"), green("✓ Ready to merge"))
+		} else {
+			fmt.Fprintf(w, "%s %s\n", bold("Merge:"), red("✗ Blocked"))
+			for _, b := range mergeBlockers(ms) {
+				fmt.Fprintf(w, "  - %s\n", b)
+			}
+		}
+	}
+	fmt.Fprintln(w)
 	if strings.TrimSpace(pr.Description) == "" {
 		fmt.Fprintln(w, gray("No description provided"))
 	} else {

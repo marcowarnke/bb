@@ -46,7 +46,7 @@ Repo resolution: `-R [HOST/]PROJECT/REPO` (or URL) → `BB_REPO` → git remotes
 | Command | Notes |
 |---|---|
 | `pr list` | `-s open\|closed\|merged\|all`, `-A/--author`, `--reviewer`, `-B`, `-H`, `-S`, `-d`, `-L` |
-| `pr view` | `-c/--comments` shows threads with comment IDs and `file:line` anchors |
+| `pr view` | `-c/--comments` shows threads with comment IDs and `file:line` anchors; open PRs show whether they can merge and what blocks them |
 | `pr status` | Current branch / created by you / review requested |
 | `pr diff` | Unified diff; `--name-only`, `--patch`, `--color`; agent options: `-n` (explicit old/new line numbers), `--json`, `--stat`, `-- <paths>`, `--exclude`, `--max-lines`, `--since-last-review`, `--since <sha>` |
 | `pr threads` | Open tasks/threads with IDs, anchors, code context, replies; `--needs-reply`, `--started-by`, `--all`, `--json` |
@@ -57,13 +57,13 @@ Repo resolution: `-R [HOST/]PROJECT/REPO` (or URL) → `BB_REPO` → git remotes
 | `pr ready [--undo]` | Draft toggle (DC 8.18+) |
 | `pr comment` | gh flags + `--path --line` (validated against the diff, line type inferred), `--line-type removed`, `--suggestion`, `--task`, `--reply-to ID [--resolve\|--reopen]` |
 | `pr review` | `--approve` → Approved, `--request-changes` → Needs work, `--comment`; `--input review.json [--dry-run]` posts a whole validated review |
-| `pr merge` | `--merge`(no-ff) / `--squash` / `--rebase`(rebase-no-ff), default = repo default; `-d`, `-t`, `-b` |
+| `pr merge` | `--merge`(no-ff) / `--squash` / `--rebase`(rebase-no-ff), default = repo default; `-d`, `-t`, `-b`; `--dry-run` only checks: lists conflicts and merge-check vetoes (approvals, builds, tasks) |
 | `pr close` / `reopen` | Decline / reopen; `-c` comment, `close -d` deletes branch |
 | `repo view` / `clone` | `view` prints README; `clone` honours `git_protocol` |
 | `api` | Raw REST: `-X -f -F -H --input --paginate --jq -i`; `{project}` `{repo}` `{branch}` placeholders; non-`rest/` paths get `rest/api/1.0/` |
 
 PR arguments: number, URL, or branch; omitted = current branch.
-`--json fields` / `--jq` / `--template` on `pr list|view|status|checks|threads`, `repo view`; `--json` alone lists fields. `pr view`/`list` add `commits` and `unresolvedThreads` fields.
+`--json fields` / `--jq` / `--template` on `pr list|view|status|checks|threads`, `repo view`; `--json` alone lists fields. `pr view`/`list` add `commits`, `unresolvedThreads`, `mergeStateStatus` (`CLEAN`/`BLOCKED`/`DIRTY`/`DRAFT`/`UNKNOWN`) and `mergeBlockers` fields.
 
 ### gh → Bitbucket mapping
 

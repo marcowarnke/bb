@@ -386,7 +386,7 @@ func newPRReadyCmd(repoFlag *string) *cobra.Command {
 }
 
 func newPRMergeCmd(repoFlag *string) *cobra.Command {
-	var merge, squash, rebase, deleteBranch bool
+	var merge, squash, rebase, deleteBranch, dryRun bool
 	var subject, body string
 	cmd := &cobra.Command{
 		Use:   "merge [<number> | <url> | <branch>]",
@@ -395,7 +395,11 @@ func newPRMergeCmd(repoFlag *string) *cobra.Command {
 
 Without a strategy flag the repository's default merge strategy is used.
 --merge → no-ff, --squash → squash, --rebase → rebase-no-ff
-(the strategy must be enabled for the repository).`,
+(the strategy must be enabled for the repository).
+
+If the pull request can't be merged, the reasons are listed: merge conflicts
+and failing merge checks (required approvals, builds, open tasks, …).
+--dry-run only runs these checks: exit 0 if mergeable, 1 with the reasons if not.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			strategy := ""
@@ -425,14 +429,15 @@ Without a strategy flag the repository's default merge strategy is used.
 				return err
 			}
 			if !ms.CanMerge {
-				var reasons []string
-				if ms.Conflicted {
-					reasons = append(reasons, "the pull request has merge conflicts")
+				return fmt.Errorf("pull request %s#%d is not mergeable:\n  - %s", r.FullName(), pr.ID, strings.Join(mergeBlockers(ms), "\n  - "))
+			}
+			if dryRun {
+				how := "the repository's default strategy"
+				if strategy != "" {
+					how = strategy
 				}
-				for _, v := range ms.Vetoes {
-					reasons = append(reasons, strings.TrimSpace(v.SummaryMessage+": "+v.DetailedMessage))
-				}
-				return fmt.Errorf("pull request %s#%d is not mergeable:\n  - %s", r.FullName(), pr.ID, strings.Join(reasons, "\n  - "))
+				success("Pull request %s#%d can be merged (%s); nothing done (--dry-run)", r.FullName(), pr.ID, how)
+				return nil
 			}
 			payload := map[string]any{}
 			if strategy != "" {
@@ -457,6 +462,7 @@ Without a strategy flag the repository's default merge strategy is used.
 	f.BoolVarP(&squash, "squash", "s", false, "Squash the commits into one commit and merge it into the base branch")
 	f.BoolVarP(&rebase, "rebase", "r", false, "Rebase the commits onto the base branch")
 	f.BoolVarP(&deleteBranch, "delete-branch", "d", false, "Delete the local and remote branch after merge")
+	f.BoolVar(&dryRun, "dry-run", false, "Check whether the pull request can be merged without merging it")
 	f.StringVarP(&subject, "subject", "t", "", "Subject `text` for the merge commit")
 	f.StringVarP(&body, "body", "b", "", "Body `text` for the merge commit")
 	return cmd

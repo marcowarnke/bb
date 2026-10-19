@@ -31,6 +31,7 @@ Auth is preconfigured. `bb auth status` checks it; exit code 4 anywhere = not au
 | Full review | `bb pr review N --input review.json [--dry-run]` |
 | Verdict only | `bb pr review N --approve\|--request-changes\|--comment [-b TEXT]` |
 | Builds | `bb pr checks N [--watch]` |
+| Why can't it merge? | `bb pr merge N --dry-run` · `bb pr view N --json mergeStateStatus,mergeBlockers` |
 | Create / update | `bb pr create -t T -F - -r alice,bob` · `bb pr edit N --add-reviewer x` |
 | Check out | `bb pr checkout N` |
 | File at a commit | `bb api -H 'Accept: text/plain' "projects/{project}/repos/{repo}/raw/<path>?at=<sha>"` |
