@@ -219,6 +219,10 @@ func (f *fakeBB) handle(w http.ResponseWriter, r *http.Request) {
 		out = pr
 	case "GET /rest/api/1.0/projects/PROJ/repos/repo/default-branch":
 		out = map[string]any{"displayId": "main"}
+	case "GET /rest/api/1.0/projects":
+		out = page(map[string]any{"key": "PROJ", "name": "Project"}, map[string]any{"key": "OTHER", "name": "Other"})
+	case "GET /rest/api/1.0/projects/PROJ/repos":
+		out = page(map[string]any{"slug": "repo", "name": "Repo"}, map[string]any{"slug": "lib", "name": "Lib"})
 	case "GET /rest/api/1.0/projects/PROJ/repos/repo/branches":
 		out = page(map[string]any{"displayId": "feat2"})
 	case "GET /rest/api/1.0/projects/PROJ/repos/repo":
@@ -529,5 +533,38 @@ func TestStatusDashboard(t *testing.T) {
 	out, _, _ = run(t, "", "status", "--json", "number,repository", "--jq", ".reviewRequested[0].repository.nameWithOwner, (.waitingOnAuthor | length)")
 	if out != "OTHER/lib\n0\n" {
 		t.Fatalf("json=%q", out)
+	}
+}
+
+func TestCompletion(t *testing.T) {
+	newFake(t)
+	complete := func(args ...string) []string {
+		t.Helper()
+		out, errOut, code := run(t, "", append([]string{"__complete"}, args...)...)
+		if code != 0 {
+			t.Fatalf("%v: code=%d err=%q", args, code, errOut)
+		}
+		return strings.Split(strings.TrimSpace(out), "\n")
+	}
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"pr", "view", "-R", "PROJ/repo", ""}, "7\tAdd feature · alice · feat\n:36"},
+		{[]string{"pr", "merge", "-R", "PROJ/repo", "#"}, "7\tAdd feature · alice · feat\n:36"},
+		{[]string{"pr", "view", "-R", "PROJ/repo", "8"}, ":36"},    // no match
+		{[]string{"pr", "view", "-R", "PROJ/repo", "7", ""}, ":4"}, // one PR only
+		{[]string{"browse", "-R", "PROJ/repo", "src/"}, ":0"},      // files
+		{[]string{"pr", "create", "-R", "PROJ/repo", "-r", "bob,da"}, "bob,dave.smith\tDave Smith\n:4"},
+		{[]string{"pr", "list", "-R", "PROJ/repo", "--author", "@"}, "@me\tyourself\ndave.smith\tDave Smith\n:4"},
+		{[]string{"pr", "create", "-R", "PROJ/repo", "-B", "f"}, "feat2\n:36"},
+		{[]string{"pr", "list", "-R", "pr"}, "prOJ/\tProject\n:6"},
+		{[]string{"pr", "list", "-R", "proj/"}, "proj/repo\tRepo\nproj/lib\tLib\n:4"},
+		{[]string{"pr", "list", "--state", ""}, "open\nclosed\nmerged\nall\n:4"},
+	} {
+		got := complete(tc.args...)
+		if strings.Join(got, "\n") != tc.want {
+			t.Errorf("%v:\n got %q\nwant %q", tc.args, strings.Join(got, "\n"), tc.want)
+		}
 	}
 }

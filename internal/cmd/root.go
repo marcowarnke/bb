@@ -59,6 +59,7 @@ Modelled after the GitHub CLI (gh): same commands, flags and output conventions.
 	}
 	root.SetFlagErrorFunc(flagError)
 	root.AddCommand(newAuthCmd(), newBrowseCmd(), newPRCmd(), newRepoCmd(), newStatusCmd(), newAPICmd(), newSkillsCmd())
+	registerCompletions(root)
 	return root
 }
 

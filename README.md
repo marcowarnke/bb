@@ -39,6 +39,16 @@ Both stored forms survive reboots; `bb auth status` shows which one is in use, `
 | `BB_REPO` | Default `PROJECT/REPO` (same as `-R`) |
 | `NO_COLOR`, `BROWSER` | As in gh |
 
+## Shell completion
+
+```sh
+bb completion zsh > "${fpath[1]}/_bb"          # zsh
+bb completion bash > /etc/bash_completion.d/bb  # bash (needs bash-completion v2)
+bb completion fish > ~/.config/fish/completions/bb.fish
+```
+
+Completion is live: PR arguments complete to open PR numbers with `title · author · branch` (declined ones for `reopen`), reviewer/author flags to users, `-B/-H/-b` to branches, `-R` to `PROJECT/REPO`. It uses the same repo resolution as the command and stays silent if the server is unreachable (5 s timeout).
+
 Repo resolution: `-R [HOST/]PROJECT/REPO` (or URL) → `BB_REPO` → git remotes (`upstream` > `origin` > others). Handles `/scm/` HTTPS, SSH `:7999`, `~user` personal repos.
 
 ## Commands
