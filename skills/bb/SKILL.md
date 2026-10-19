@@ -20,7 +20,8 @@ Auth is preconfigured. `bb auth status` checks it; exit code 4 anywhere = not au
 | Need | Command |
 |---|---|
 | PR metadata | `bb pr view N --json number,title,body,author,headRefName,baseRefName,headRefOid,isDraft,reviewDecision,latestReviews,taskCount,unresolvedThreads,commits,url` |
-| My / my review queue | `bb pr list --author @me` · `bb pr list --reviewer @me` · `bb pr status` |
+| My / my review queue (all repos) | `bb status --json number,title,repository,url` → `authored`, `reviewRequested`, `waitingOnAuthor` |
+| … in this repo | `bb pr list --author @me` · `bb pr list --reviewer @me` · `bb pr status` |
 | Diff size | `bb pr diff N --stat` |
 | Diff with line numbers | `bb pr diff N -n [-- <path>...] [--exclude 'glob,…'] [--max-lines 1500]` |
 | Structured diff | `bb pr diff N --json` |

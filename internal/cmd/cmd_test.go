@@ -148,6 +148,18 @@ func (f *fakeBB) handle(w http.ResponseWriter, r *http.Request) {
 		out = page(map[string]any{"name": "dave.smith", "slug": "dave.smith", "displayName": "Dave Smith"})
 	case "GET " + prBase + "/7":
 		out = pr
+	case "GET /rest/api/1.0/dashboard/pull-requests":
+		switch q.Get("role") + "/" + q.Get("participantStatus") {
+		case "AUTHOR/":
+			out = page(pr)
+		case "REVIEWER/UNAPPROVED":
+			other := prJSONFixture(f.srv.URL)
+			other["id"], other["title"] = 9, "Fix bug"
+			other["toRef"].(map[string]any)["repository"] = map[string]any{"slug": "lib", "project": map[string]any{"key": "OTHER"}}
+			out = page(other)
+		default:
+			out = page()
+		}
 	case "GET " + prBase:
 		out = page(pr)
 	case "GET " + prBase + "/7.diff":
@@ -502,5 +514,20 @@ func TestBrowse(t *testing.T) {
 	}
 	if _, errOut, code := run(t, "", "browse", "-R", "PROJ/repo", "-n", "x.go:abc"); code == 0 || !strings.Contains(errOut, "invalid line") {
 		t.Errorf("expected line error, got %q", errOut)
+	}
+}
+
+func TestStatusDashboard(t *testing.T) {
+	f := newFake(t)
+	f.merge = map[string]any{"canMerge": false, "vetoes": []any{map[string]any{"summaryMessage": "Needs 2 approvals"}}}
+	out, errOut, code := run(t, "", "status")
+	want := "authored\tPROJ/repo\t7\tAdd feature\t" + f.srv.URL + "/projects/PROJ/repos/repo/pull-requests/7\tblocked: Needs 2 approvals\n" +
+		"reviewRequested\tOTHER/lib\t9\tFix bug\t"
+	if code != 0 || !strings.HasPrefix(out, want) || !strings.Contains(out, "\tby alice, updated ") {
+		t.Fatalf("code=%d out=%q err=%q", code, out, errOut)
+	}
+	out, _, _ = run(t, "", "status", "--json", "number,repository", "--jq", ".reviewRequested[0].repository.nameWithOwner, (.waitingOnAuthor | length)")
+	if out != "OTHER/lib\n0\n" {
+		t.Fatalf("json=%q", out)
 	}
 }

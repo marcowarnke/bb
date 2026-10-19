@@ -41,7 +41,7 @@ var prFields = []string{
 	"author", "baseRefName", "baseRefOid", "body", "closed", "closedAt", "commentCount", "comments",
 	"commits", "createdAt", "files", "headRefName", "headRefOid", "headRepository", "id", "isCrossRepository",
 	"isDraft", "latestReviews", "mergeBlockers", "mergeStateStatus", "mergeable", "number", "participants", "reviewDecision",
-	"reviewRequests", "state", "statusCheckRollup", "taskCount", "title", "unresolvedThreads", "updatedAt", "url", "version",
+	"repository", "reviewRequests", "state", "statusCheckRollup", "taskCount", "title", "unresolvedThreads", "updatedAt", "url", "version",
 }
 
 // ghState maps Bitbucket states to gh's vocabulary.
@@ -151,9 +151,12 @@ func prJSON(c *bitbucket.Client, r Repo, pr *bitbucket.PullRequest, e *exporter)
 	for _, p := range pr.Participants {
 		participants = append(participants, map[string]any{"user": userJSON(p.User), "role": p.Role, "status": p.Status})
 	}
-	var headRepo any
+	var headRepo, baseRepo any
 	if hr := pr.FromRef.Repository; hr != nil {
 		headRepo = map[string]any{"project": hr.Project.Key, "slug": hr.Slug, "name": hr.Name}
+	}
+	if br := pr.ToRef.Repository; br != nil {
+		baseRepo = map[string]any{"project": br.Project.Key, "slug": br.Slug, "name": br.Name, "nameWithOwner": br.FullName()}
 	}
 	m := map[string]any{
 		"id": pr.ID, "number": pr.ID, "version": pr.Version, "title": pr.Title, "body": pr.Description,
@@ -162,7 +165,7 @@ func prJSON(c *bitbucket.Client, r Repo, pr *bitbucket.PullRequest, e *exporter)
 		"author":      userJSON(pr.Author.User),
 		"headRefName": pr.FromRef.DisplayID, "headRefOid": pr.FromRef.LatestCommit,
 		"baseRefName": pr.ToRef.DisplayID, "baseRefOid": pr.ToRef.LatestCommit,
-		"headRepository": headRepo, "isCrossRepository": pr.IsCrossRepository(),
+		"headRepository": headRepo, "repository": baseRepo, "isCrossRepository": pr.IsCrossRepository(),
 		"reviewRequests": reviewRequests, "latestReviews": latestReviews, "participants": participants,
 		"reviewDecision": reviewDecision(pr),
 		"commentCount":   pr.Properties.CommentCount, "taskCount": pr.Properties.OpenTaskCount,

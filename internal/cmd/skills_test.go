@@ -17,7 +17,7 @@ func TestSkillsReferenceRealFlags(t *testing.T) {
 	if len(files) < 3 {
 		t.Fatalf("expected skill files, found %v", files)
 	}
-	invocation := regexp.MustCompile("bb ((?:pr|repo|auth|api|browse)\\b[^`|\\n]*)")
+	invocation := regexp.MustCompile("bb ((?:pr|repo|auth|api|browse|status|skills)\\b[^`|\\n]*)")
 	flag := regexp.MustCompile(`(?:^|\s)(--?[a-zA-Z][\w-]*)`)
 	checked := 0
 	for _, file := range files {

@@ -59,6 +59,7 @@ Repo resolution: `-R [HOST/]PROJECT/REPO` (or URL) → `BB_REPO` → git remotes
 | `pr review` | `--approve` → Approved, `--request-changes` → Needs work, `--comment`; `--input review.json [--dry-run]` posts a whole validated review |
 | `pr merge` | `--merge`(no-ff) / `--squash` / `--rebase`(rebase-no-ff), default = repo default; `-d`, `-t`, `-b`; `--dry-run` only checks: lists conflicts and merge-check vetoes (approvals, builds, tasks) |
 | `pr close` / `reopen` | Decline / reopen; `-c` comment, `close -d` deletes branch |
+| `status` | Dashboard across all repos: your open PRs with merge readiness / blockers, PRs awaiting your review, PRs where you requested changes. `--json` (adds `repository`), `-L`, `--hostname` |
 | `browse` | Open repo / PR number / commit / `path[:line[-line]]` in the browser; `-b`, `-c`, `-s` settings, `-p` pull requests, `-n` print URL. Paths are relative to the current dir; files open on the pushed current branch, else the default branch |
 | `repo view` / `clone` | `view` prints README; `clone` honours `git_protocol` |
 | `api` | Raw REST: `-X -f -F -H --input --paginate --jq -i`; `{project}` `{repo}` `{branch}` placeholders; non-`rest/` paths get `rest/api/1.0/` |
