@@ -116,13 +116,23 @@ bb pr threads 42 --json id,kind,path,line,body,replies,context
 bb pr comment 42 --reply-to 1234 -b "Fixed in 3f2a1c9" --resolve
 ```
 
-Install the skills (embedded in the binary, so they always match its flags; re-run after upgrading):
+Install the skills (embedded in the binary, so they always match its flags; re-run after upgrading). In a terminal, `bb skills install` asks where, showing which locations are installed / outdated:
+
+| `--agent` | `--scope user` | `--scope project` |
+|---|---|---|
+| `claude` | `~/.claude/skills` | `.claude/skills` |
+| `copilot` | `~/.copilot/skills` | `.github/skills` |
+| `agents` | `~/.agents/skills` | `.agents/skills` |
 
 ```sh
-bb skills install              # ~/.claude/skills
-bb skills install --project    # <repo>/.claude/skills
+bb skills install                                   # interactive (piped: ~/.claude/skills)
+bb skills install --agent copilot --scope project   # .github/skills
+bb skills install --agent claude,copilot --scope user,project
+bb skills install --dir path/to/skills
 bb skills list
 ```
+
+Copilot also reads the Claude and `.agents` directories, so one location per scope is enough for both.
 
 ## Dev
 

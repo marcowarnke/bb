@@ -247,9 +247,21 @@ func (f *fakeBB) handle(w http.ResponseWriter, r *http.Request) {
 
 func run(t *testing.T, in string, args ...string) (string, string, int) {
 	t.Helper()
+	return runWith(t, false, in, args...)
+}
+
+// runTTY runs as if attached to a terminal (prompts enabled; no color in tests).
+func runTTY(t *testing.T, in string, args ...string) (string, string, int) {
+	t.Helper()
+	t.Setenv("NO_COLOR", "1")
+	return runWith(t, true, in, args...)
+}
+
+func runWith(t *testing.T, tty bool, in string, args ...string) (string, string, int) {
+	t.Helper()
 	var o, e bytes.Buffer
 	stdout, stderr, stdin = &o, &e, strings.NewReader(in)
-	isTTY = func() bool { return false }
+	isTTY = func() bool { return tty }
 	root := NewRoot()
 	root.SetArgs(args)
 	root.SetOut(&o)

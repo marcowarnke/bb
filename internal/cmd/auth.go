@@ -249,6 +249,6 @@ func newAuthTokenCmd() *cobra.Command {
 
 func prompt(label string) string {
 	fmt.Fprint(stderr, label)
-	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	line, _ := bufio.NewReader(stdin).ReadString('\n')
 	return strings.TrimSpace(line)
 }
