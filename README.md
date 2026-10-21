@@ -1,18 +1,50 @@
 # bb — `gh`-style CLI for Bitbucket Data Center
 
-Same command tree, flags, and output conventions as the GitHub CLI, targeting the Bitbucket DC REST API (`/rest/api/1.0`). Single static binary, no runtime deps.
+Same command tree, flags, and output conventions as the GitHub CLI, targeting the Bitbucket DC REST API (`/rest/api/1.0`). Plain Python (3.10+, standard library plus truststore), shipped as a single zip app with launchers, so there is no binary for endpoint policies to flag.
 
 ## Install
 
-Download a binary from [Releases](https://github.com/marcowarnke/bb/releases) (windows/amd64, linux/amd64, darwin/arm64), or:
+Needs [uv](https://docs.astral.sh/uv/) (recommended: it also provides Python) or Python 3.10+. `--jq` needs the [jq](https://jqlang.org/download/) command; without it, use `--format`.
+
+1. Download `bb-v0.6.0.zip` from [Releases](https://github.com/marcowarnke/bb/releases) and unpack it. The `bb` folder holds:
+
+   | File | What |
+   |---|---|
+   | `bb.pyz` | The whole CLI as one Python zip app |
+   | `bb.cmd` | Launcher for cmd.exe (and PowerShell) on Windows |
+   | `bb.ps1` | Launcher for PowerShell on Windows |
+   | `bb` | Launcher for macOS/Linux shells and Git Bash |
+
+2. Put the folder on your `PATH` and check with `bb --version`:
+
+   ```powershell
+   # Windows (PowerShell), for the current user
+   $dir = "$HOME\bin\bb"   # where you unpacked it
+   [Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";$dir", "User")
+   ```
+
+   ```sh
+   # macOS/Linux
+   ln -s "$PWD/bb/bb" ~/.local/bin/bb
+   ```
+
+The launchers run `bb.pyz` through `uv run` when uv is installed (uv finds or downloads a suitable Python), otherwise with `python3`/`python` (or `py -3` on Windows) from `PATH`. No executable is installed.
+
+On Windows, PowerShell prefers `bb.ps1` over `bb.cmd`. If PowerShell says running scripts is disabled (execution policy), delete `bb.ps1` and `bb.cmd` takes over.
+
+Alternatively, install it as a uv tool. On Windows this creates a small `bb.exe` shim, which endpoint policies may block like the old binaries:
 
 ```sh
-go install github.com/marcowarnke/bb@latest
-make install                 # from a checkout, with version stamp
-make dist                    # → dist/bb_<os>_<arch>
+uv tool install git+https://github.com/marcowarnke/bb@v0.6.0
 ```
 
-CI (`.github/workflows/build.yml`) tests and builds on every push (binaries as workflow artifact `bb-binaries`); pushing a `v*` tag publishes a release with the binaries.
+TLS: `bb` trusts the operating system's certificate store (through [truststore](https://github.com/sethmlarson/truststore)), so corporate TLS inspection works without setup; `SSL_CERT_FILE` overrides it. For uv itself (downloading Python behind such a proxy), set `UV_SYSTEM_CERTS=1`.
+
+### Upgrading from the Go binaries
+
+Delete the old `bb` executable and install as above. Logins carry over: keyring entries and `config.json` are read and written exactly as before (CI checks the keyring format against go-keyring on every OS). Re-run `bb skills install` afterwards.
+
+The command line is unchanged, except that Go's `--template` is replaced by `--format`, a Python format string applied to each item (`--json number,title --format '#{number} {title}'`).
 
 ## Auth
 
@@ -47,6 +79,7 @@ Repo resolution: `-R [HOST/]PROJECT/REPO` (or URL) → `BB_REPO` → git remotes
 bb completion zsh > "${fpath[1]}/_bb"          # zsh
 bb completion bash > /etc/bash_completion.d/bb  # bash (needs bash-completion v2)
 bb completion fish > ~/.config/fish/completions/bb.fish
+bb completion powershell | Out-String | Invoke-Expression   # PowerShell; add to your $PROFILE
 ```
 
 Completion is live: PR arguments complete to open PR numbers with `title · author · branch` (declined ones for `reopen`), reviewer/author flags to users, `-B/-H/-b` to branches, `-R` to `PROJECT/REPO`. It uses the same repo resolution as the command and stays silent if the server is unreachable (5 s timeout).
@@ -75,7 +108,7 @@ Completion is live: PR arguments complete to open PR numbers with `title · auth
 | `api` | Raw REST: `-X -f -F -H --input --paginate --jq -i`; `{project}` `{repo}` `{branch}` placeholders; non-`rest/` paths get `rest/api/1.0/` |
 
 PR arguments: number, URL, or branch; omitted = current branch.
-`--json fields` / `--jq` / `--template` on `pr list|view|status|checks|threads`, `repo view`; `--json` alone lists fields. `pr view`/`list` add `commits`, `unresolvedThreads`, `mergeStateStatus` (`CLEAN`/`BLOCKED`/`DIRTY`/`DRAFT`/`UNKNOWN`) and `mergeBlockers` fields.
+`--json fields` / `--jq` / `--format` on `pr list|view|status|checks|threads`, `repo view`; `--json` alone lists fields. `--jq` runs the `jq` command (`-r -c`, like gh); `--format '#{number} {title}'` is a Python format string applied to each item, one line each (lists are joined with commas, objects printed as JSON). `pr view`/`list` add `commits`, `unresolvedThreads`, `mergeStateStatus` (`CLEAN`/`BLOCKED`/`DIRTY`/`DRAFT`/`UNKNOWN`) and `mergeBlockers` fields.
 
 ### gh → Bitbucket mapping
 
@@ -91,9 +124,9 @@ Reviewer values resolve as slug → username → email → unique `users?filter=
 
 ## Agent usage
 
-Non-TTY output is tab-separated/plain, no color, no prompts (missing required input → error). Prefer `--json` + `--jq`. Exit codes: 0 ok, 1 error, 4 auth, 8 checks pending.
+Non-TTY output is tab-separated/plain, no color, no prompts (missing required input → error). Prefer `--json` + `--jq` (or `--format` without jq). Exit codes: 0 ok, 1 error, 4 auth, 8 checks pending.
 
-Two loops, each shipped as a Claude Code skill in `skills/`:
+Two loops, each shipped as a Claude Code skill in `src/bb/skills/`:
 
 | Skill | Loop |
 |---|---|
@@ -116,7 +149,7 @@ bb pr threads 42 --json id,kind,path,line,body,replies,context
 bb pr comment 42 --reply-to 1234 -b "Fixed in 3f2a1c9" --resolve
 ```
 
-Install the skills (embedded in the binary, so they always match its flags; re-run after upgrading). In a terminal, `bb skills install` asks where, showing which locations are installed / outdated:
+Install the skills (embedded in `bb.pyz`, so they always match its flags; re-run after upgrading). In a terminal, `bb skills install` asks where, showing which locations are installed / outdated:
 
 | `--agent` | `--scope user` | `--scope project` |
 |---|---|---|
@@ -136,4 +169,13 @@ Copilot also reads the Claude and `.agents` directories, so one location per sco
 
 ## Dev
 
-`make test` — command tests run against an in-process fake DC server (`internal/cmd/cmd_test.go`; loop scenarios in `loops_test.go`).
+```sh
+uv sync                                     # environment with the dev tools
+uv run bb --help                            # run from the checkout
+uv run pytest                               # tests (need jq)
+uv run ruff check && uv run ruff format --check
+uv run python scripts/build.py              # → dist/: bb.pyz, bb.cmd, bb.ps1, bb, bb-vX.Y.Z.zip
+uv run python scripts/verify_artifact.py    # run the built launchers against a fake server
+```
+
+CI (`.github/workflows/build.yml`) runs on every push: lint, tests on Linux, macOS and Windows with Python 3.10 and 3.13, a keyring check against go-keyring, the build, and the built launchers on every OS with and without uv. Pushing a `v*` tag that matches the version in `pyproject.toml` publishes a release with the files.
