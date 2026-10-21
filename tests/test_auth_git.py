@@ -11,7 +11,7 @@ pytestmark = pytest.mark.jq
 
 
 def config_file() -> str:
-    return config.path().read_text()
+    return config.path().read_text(encoding="utf-8")
 
 
 def test_auth_login_keyring(fake, monkeypatch):
@@ -64,7 +64,9 @@ def test_config_written_by_go(fake, monkeypatch):
     monkeypatch.setenv("BB_TOKEN", "")
     monkeypatch.setenv("BB_HOST", "")
     config.config_dir().mkdir(parents=True)
-    config.path().write_text(json.dumps({"hosts": {"127.0.0.1": {"base_url": fake.url, "user": "me", "git_protocol": "ssh"}}}))
+    config.path().write_text(
+        json.dumps({"hosts": {"127.0.0.1": {"base_url": fake.url, "user": "me", "git_protocol": "ssh"}}}), encoding="utf-8"
+    )
     credstore.set("bb:127.0.0.1", "me", "secret")
     out, err, code = run("pr", "view", "7", "-R", "PROJ/repo", "--json", "number", "--jq", ".number")
     assert code == 0 and out.strip() == "7", err

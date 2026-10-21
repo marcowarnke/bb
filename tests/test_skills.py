@@ -37,7 +37,7 @@ def test_skills_reference_real_flags():
     json_fields = re.compile(r"--json ([\w,]+)")
     checked, errors = 0, []
     for file in files:
-        for m in invocation.finditer(file.read_text()):
+        for m in invocation.finditer(file.read_text(encoding="utf-8")):
             line = m.group(1)
             cmd = find(line.split())
             if cmd is None:
@@ -65,7 +65,7 @@ def test_skills_install(tmp_path):
     _, err, code = run("skills", "install", "--dir", str(d))
     assert code == 0 and err.count("Installed") == 3, err
     assert (d / "bb-review" / "SKILL.md").read_bytes() == (SKILLS / "bb-review" / "SKILL.md").read_bytes()
-    (d / "bb" / "SKILL.md").write_text("stale")
+    (d / "bb" / "SKILL.md").write_text("stale", encoding="utf-8")
     _, err, _ = run("skills", "install", "--dir", str(d), "bb", "bb-review")
     assert "Updated bb" in err and "bb-review is up to date" in err
     _, err, code = run("skills", "install", "--dir", str(d), "nope")
@@ -83,7 +83,7 @@ def sandbox(tmp_path, monkeypatch) -> tuple[Path, Path]:
     monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.chdir(repo)
     subprocess.run(["git", "init", "-q"], check=True)
-    top = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip()
+    top = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, encoding="utf-8").stdout.strip()
     return home, Path(top)  # resolves /private/var symlinks on macOS
 
 
@@ -115,7 +115,7 @@ def test_skills_install_targets(tmp_path, monkeypatch):
 def test_skills_install_prompt(tmp_path, monkeypatch):
     home, repo = sandbox(tmp_path, monkeypatch)
     (home / ".claude" / "skills" / "bb").mkdir(parents=True)
-    (home / ".claude" / "skills" / "bb" / "SKILL.md").write_text("old")
+    (home / ".claude" / "skills" / "bb" / "SKILL.md").write_text("old", encoding="utf-8")
     _, err, code = run_tty("skills", "install", stdin="2, 5\n")
     assert code == 0, err
     for want in [
